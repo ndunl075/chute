@@ -515,7 +515,7 @@
           <p class="hint">BLAKE3 verified</p>
         {/if}
         {#if progress.streamedToDisk}
-          <p class="hint">Saved to disk via File System Access</p>
+          <p class="hint">Streamed to disk (File System Access or StreamSaver)</p>
         {/if}
         {#if progress.objectUrls && progress.objectUrls.length > 1}
           <ul class="file-list">
