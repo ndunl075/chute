@@ -26,7 +26,11 @@ Share the full URL (including the fragment) out of band. Clearing site data remo
 
 ## Persistent pairing
 
-Paired devices store `roomId` + key fragment in IndexedDB on each browser. Clearing site data is the v1 revocation story.
+Each browser generates an **Ed25519** device keypair (Web Crypto) stored in IndexedDB.
+
+On connection, peers exchange SPKI public keys and a signed challenge (`pair-hello` / `pair-ack`). Verified peers are saved with fingerprint, room id, and key fragment for one-tap reconnect.
+
+**Revocation:** use **Revoke** on a paired device in the lobby. That fingerprint is stored in a local deny list and will refuse future handshakes from that key. Clearing site data also wipes identity, pairs, and the revoke list.
 
 ## What we do not claim
 

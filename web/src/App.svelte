@@ -9,7 +9,17 @@
   import { generateRoomKey, importRoomKey } from './lib/crypto'
   import { loadConfig, type AppConfig } from './lib/config'
   import { fallbackReceive, fallbackSend } from './lib/fallback'
-  import { getOrCreateDeviceId, listPairs, savePair, type PairedDevice } from './lib/pair'
+  import {
+    getOrCreateIdentity,
+    isRevoked,
+    listPairs,
+    revokeDevice,
+    savePair,
+    signChallenge,
+    verifyChallenge,
+    type DeviceIdentity,
+    type PairedDevice,
+  } from './lib/pair'
   import { readLocalClipboard, writeLocalClipboard } from './lib/clipboard'
   import { consumeSharedFiles } from './lib/share'
   import { exposeMetrics, recordIce, recordTransfer } from './lib/metrics'
@@ -44,10 +54,15 @@
   let remotePeerId: string | null = null
   let iceServers: RTCIceServer[] = []
   let connectTimer: ReturnType<typeof setTimeout> | null = null
+  let identity: DeviceIdentity | null = null
+  let myChallenge = ''
+  let remoteFingerprint = ''
 
   onMount(() => {
     exposeMetrics()
-    getOrCreateDeviceId()
+    void getOrCreateIdentity().then((id) => {
+      identity = id
+    })
     void listPairs().then((p) => {
       pairs = p
     })
@@ -247,7 +262,7 @@
           phase = 'connected'
           transportMode = 'webrtc'
           status = 'Connected — pipe is hot. Drop a file.'
-          void rememberPair()
+          void startPairHandshake()
           if (transport) {
             session = new TransferSession(transport, {
               onProgress: (p) => {
@@ -278,11 +293,22 @@
         },
         onControlMessage: (data) => {
           try {
-            const msg = JSON.parse(data) as { type?: string; text?: string }
+            const msg = JSON.parse(data) as {
+              type?: string
+              text?: string
+              publicKeySpki?: string
+              fingerprint?: string
+              challenge?: string
+              signature?: string
+            }
             if (msg.type === 'clipboard' && typeof msg.text === 'string') {
               void writeLocalClipboard(msg.text).then(() => {
                 clipboardNote = `Clipboard received (${msg.text!.length} chars)`
               })
+              return
+            }
+            if (msg.type === 'pair-hello' || msg.type === 'pair-ack') {
+              void handlePairMessage(msg)
               return
             }
           } catch {
@@ -332,22 +358,90 @@
     void onFiles(e.dataTransfer?.files ?? null)
   }
 
-  async function rememberPair() {
+  async function startPairHandshake() {
+    if (!identity || !transport) return
+    myChallenge = crypto.randomUUID()
+    transport.sendControl(
+      JSON.stringify({
+        type: 'pair-hello',
+        publicKeySpki: identity.publicKeySpki,
+        fingerprint: identity.fingerprint,
+        challenge: myChallenge,
+      }),
+    )
+  }
+
+  async function handlePairMessage(msg: {
+    type?: string
+    publicKeySpki?: string
+    fingerprint?: string
+    challenge?: string
+    signature?: string
+  }) {
+    if (!identity || !transport || !msg.publicKeySpki || !msg.fingerprint) return
+
+    if (await isRevoked(msg.fingerprint)) {
+      error = 'Peer device was revoked on this browser'
+      phase = 'error'
+      transport.close()
+      return
+    }
+
+    if (msg.type === 'pair-hello' && msg.challenge) {
+      const signature = await signChallenge(identity.privateKey, msg.challenge)
+      transport.sendControl(
+        JSON.stringify({
+          type: 'pair-ack',
+          fingerprint: identity.fingerprint,
+          challenge: msg.challenge,
+          signature,
+          publicKeySpki: identity.publicKeySpki,
+        }),
+      )
+      remoteFingerprint = msg.fingerprint
+      await rememberPair(msg.fingerprint, msg.publicKeySpki)
+      return
+    }
+
+    if (msg.type === 'pair-ack' && msg.challenge && msg.signature) {
+      if (msg.challenge !== myChallenge) return
+      const ok = await verifyChallenge(msg.publicKeySpki, msg.challenge, msg.signature)
+      if (!ok) {
+        error = 'Peer identity verification failed'
+        return
+      }
+      remoteFingerprint = msg.fingerprint
+      await rememberPair(msg.fingerprint, msg.publicKeySpki)
+    }
+  }
+
+  async function rememberPair(deviceId: string, publicKeySpki: string) {
     if (!roomId || !keyFragment) return
-    const deviceId = remotePeerId || 'peer'
+    const short = deviceId.slice(0, 8)
     await savePair({
       deviceId,
-      label: `Room ${roomId}`,
+      label: `Device ${short}`,
       roomId,
       keyFragment,
+      publicKeySpki,
       lastSeen: Date.now(),
     })
     pairs = await listPairs()
   }
 
   async function reconnectPair(p: PairedDevice) {
+    if (await isRevoked(p.deviceId)) {
+      error = 'That device was revoked'
+      pairs = await listPairs()
+      return
+    }
     history.replaceState({}, '', `/r/${p.roomId}#${p.keyFragment}`)
     await enterRoom(p.roomId, p.keyFragment)
+  }
+
+  async function onRevoke(p: PairedDevice) {
+    await revokeDevice(p.deviceId)
+    pairs = await listPairs()
   }
 
   async function sendClipboard() {
@@ -403,10 +497,11 @@
           <h2>Recent devices</h2>
           <ul class="pairs">
             {#each pairs as p}
-              <li>
+              <li class="pair-row">
                 <button class="text-button" onclick={() => void reconnectPair(p)}>
                   {p.label}<span aria-hidden="true">→</span>
                 </button>
+                <button class="text-button danger" onclick={() => void onRevoke(p)}>Revoke</button>
               </li>
             {/each}
           </ul>

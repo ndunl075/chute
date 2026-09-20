@@ -73,6 +73,21 @@ export type ClipboardControlMessage = {
   sentAt: number
 }
 
+export type PairHelloMessage = {
+  type: 'pair-hello'
+  publicKeySpki: string
+  fingerprint: string
+  challenge: string
+}
+
+export type PairAckMessage = {
+  type: 'pair-ack'
+  fingerprint: string
+  challenge: string
+  signature: string
+  publicKeySpki: string
+}
+
 export type ControlMessage =
   | ManifestMessage
   | ResumeMessage
@@ -81,6 +96,8 @@ export type ControlMessage =
   | CompleteMessage
   | AbortMessage
   | ClipboardControlMessage
+  | PairHelloMessage
+  | PairAckMessage
 
 /** Binary data-channel frame: u32be chunkIndex + payload */
 export function encodeChunk(index: number, payload: ArrayBuffer): ArrayBuffer {
