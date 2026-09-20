@@ -8,7 +8,7 @@ Open a page on your laptop. Scan the QR with your phone. Drag a file. It's on th
 
 No app install, no account, no cable, no cloud round-trip for the file bytes.
 
-> Status: **M2 — Make it fast.** Parallel DataChannels, ICE path racing, thumbnail-first, File System Access streaming on Chromium.
+> Status: **M3 — Make it work anywhere.** STUN/TURN via coturn, ICE config API, encrypted HTTPS store-and-forward fallback.
 
 ## Quick start (dev)
 
@@ -44,6 +44,16 @@ cd ../server && go run . -static ../web/dist
 ```
 
 Open http://localhost:8080
+
+### Docker (signaling + TURN)
+
+```bash
+cd deploy
+export CHUTE_TURN_URL=turn:127.0.0.1:3478
+docker compose up --build
+```
+
+See [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).
 
 ## How to try M1
 

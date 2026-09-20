@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/ndunl075/chute/server/config"
+	"github.com/ndunl075/chute/server/fallback"
 	"github.com/ndunl075/chute/server/room"
 	"github.com/ndunl075/chute/server/signal"
 )
@@ -18,57 +21,68 @@ func main() {
 	flag.Parse()
 
 	hub := room.NewHub()
-	mux := http.NewServeMux()
+	cfg := config.FromEnv()
+	store := fallback.NewStore()
 
+	mux := http.NewServeMux()
 	mux.Handle("/ws", &signal.HubHandler{Hub: hub})
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/config", cfg.Handler())
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	store.Mount(mux)
 
+	var handler http.Handler = mux
 	if *staticDir != "" {
 		abs, err := filepath.Abs(*staticDir)
 		if err != nil {
 			log.Fatal(err)
 		}
-		fs := http.FileServer(http.Dir(abs))
-		mux.Handle("/", spaHandler(abs, fs))
+		handler = withStatic(mux, abs)
 		log.Printf("serving static from %s", abs)
 	}
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           withCORS(mux),
+		Handler:           withCORS(handler),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("chute signaling listening on %s", *addr)
+	log.Printf("chute signaling listening on %s (fallback=%v, iceServers=%d)", *addr, cfg.Fallback, len(cfg.IceServers))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }
 
-func withCORS(next http.Handler) http.Handler {
+func withStatic(api http.Handler, root string) http.Handler {
+	fs := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+		if r.URL.Path == "/ws" ||
+			r.URL.Path == "/health" ||
+			r.URL.Path == "/api/config" ||
+			strings.HasPrefix(r.URL.Path, "/api/fallback/") {
+			api.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// spaHandler serves index.html for unknown paths so /r/:id works.
-func spaHandler(root string, fs http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join(root, filepath.Clean(r.URL.Path))
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
 			fs.ServeHTTP(w, r)
 			return
 		}
 		http.ServeFile(w, r, filepath.Join(root, "index.html"))
+	})
+}
+
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
