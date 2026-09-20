@@ -1,7 +1,7 @@
 /** IndexedDB persistence for resume bitmaps and paired devices. */
 
 const DB_NAME = 'chute'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -13,6 +13,12 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('pairs')) {
         db.createObjectStore('pairs', { keyPath: 'deviceId' })
+      }
+      if (!db.objectStoreNames.contains('identity')) {
+        db.createObjectStore('identity', { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains('revoked')) {
+        db.createObjectStore('revoked', { keyPath: 'deviceId' })
       }
     }
     req.onsuccess = () => resolve(req.result)

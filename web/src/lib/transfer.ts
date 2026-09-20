@@ -292,7 +292,6 @@ export class TransferSession {
 
   private async sendFilesInner(files: File[]): Promise<void> {
     const transferId = uuid()
-    const dropAt = performance.now()
     const control = this.transport.channel
     if (!control || control.readyState !== 'open') {
       throw new Error('control channel not open')
@@ -315,6 +314,9 @@ export class TransferSession {
     }
     const totalSize = entries.reduce((s, f) => s + f.size, 0)
     const label = files.length === 1 ? files[0].name : `${files.length} files`
+
+    // TTFB starts when the pipe is used, after hashing (hashing is prep, not wire latency).
+    const dropAt = performance.now()
 
     this.callbacks.onProgress({
       transferId,
