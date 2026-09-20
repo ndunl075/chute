@@ -19,6 +19,8 @@ export type FileEntry = {
   name: string
   size: number
   mime: string
+  /** Relative path for folder transfers */
+  path?: string
 }
 
 export type ManifestMessage = {
@@ -29,6 +31,14 @@ export type ManifestMessage = {
   channelCount: number
   /** Sender performance.now() when drop happened — for TTFB measurement */
   dropAt: number
+}
+
+export type ResumeMessage = {
+  type: 'resume'
+  transferId: string
+  /** base64 bitset of already-received chunk indices */
+  bitmap: string
+  totalChunks: number
 }
 
 export type ReadyMessage = {
@@ -57,6 +67,7 @@ export type AbortMessage = {
 
 export type ControlMessage =
   | ManifestMessage
+  | ResumeMessage
   | ReadyMessage
   | ThumbnailMessage
   | CompleteMessage

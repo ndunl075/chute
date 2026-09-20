@@ -8,7 +8,7 @@ Open a page on your laptop. Scan the QR with your phone. Drag a file. It's on th
 
 No app install, no account, no cable, no cloud round-trip for the file bytes.
 
-> Status: **M3 — Make it work anywhere.** STUN/TURN via coturn, ICE config API, encrypted HTTPS store-and-forward fallback.
+> Status: **M4 — Make it reliable.** Chunk resume bitmaps (IndexedDB), wake lock, multi-file and folder transfers.
 
 ## Quick start (dev)
 
