@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.exe
+*.test
+.DS_Store
+.env
+.env.*
+server/chute
+server/chute.exe
+web/dist/
