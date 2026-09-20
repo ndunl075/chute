@@ -236,7 +236,7 @@ export class TransferSession {
       if (closed.objectUrl) {
         objectUrls.push({ name: file.path || file.name, url: closed.objectUrl })
       }
-      if (closed.fileHandle) streamed = true
+      if (closed.fileHandle || closed.streamed) streamed = true
     }
 
     await deleteBitmap(r.transferId)
