@@ -221,6 +221,15 @@ body {
   font-size: 0.85rem;
 }
 
+.file-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.file-list a {
+  color: var(--accent);
+}
+
 .error {
   color: var(--danger);
   margin: 0.5rem 0 0;

@@ -28,6 +28,7 @@
 
   let qrCanvas: HTMLCanvasElement | undefined = $state()
   let fileInput: HTMLInputElement | undefined = $state()
+  let folderInput: HTMLInputElement | undefined = $state()
 
   let signaling: SignalingClient | null = null
   let transport: PeerTransport | null = null
@@ -267,18 +268,19 @@
 
   async function onFiles(files: FileList | File[] | null) {
     if (!files || !files.length) return
-    const file = files[0]
+    const list = [...files]
     try {
       if (transportMode === 'fallback' || phase === 'fallback') {
         if (!roomKey || !signaling) throw new Error('not ready')
-        const transferId = await fallbackSend(roomId, roomKey, file, (p) => {
+        // Fallback path: send first file only in M3; multi-file stays on WebRTC for M4.
+        const transferId = await fallbackSend(roomId, roomKey, list[0], (p) => {
           progress = p
         })
         signaling.signal({ kind: 'fallback', transferId }, remotePeerId ?? undefined)
         return
       }
       if (!session) return
-      await session.sendFile(file)
+      await session.sendFiles(list)
     } catch (e) {
       error = e instanceof Error ? e.message : 'send failed'
     }
@@ -374,16 +376,26 @@
         ondragleave={() => (dragging = false)}
         ondrop={onDrop}
       >
-        <p>Drop a file here</p>
-        <button class="secondary" onclick={() => fileInput?.click()}>or browse</button>
+        <p>Drop files or a folder here</p>
+        <button class="secondary" onclick={() => fileInput?.click()}>browse files</button>
+        <button class="secondary" onclick={() => folderInput?.click()}>browse folder</button>
         {#if phase === 'connected'}
           <button class="secondary" onclick={enableFallbackMode}>HTTPS fallback</button>
         {/if}
         <input
           bind:this={fileInput}
           type="file"
+          multiple
           hidden
           onchange={() => void onFiles(fileInput?.files ?? null)}
+        />
+        <input
+          bind:this={folderInput}
+          type="file"
+          multiple
+          {...{ webkitdirectory: true } as object}
+          hidden
+          onchange={() => void onFiles(folderInput?.files ?? null)}
         />
       </section>
     {/if}
@@ -414,7 +426,13 @@
         {#if progress.streamedToDisk}
           <p class="hint">Saved to disk via File System Access</p>
         {/if}
-        {#if progress.objectUrl}
+        {#if progress.objectUrls && progress.objectUrls.length > 1}
+          <ul class="file-list">
+            {#each progress.objectUrls as f}
+              <li><a href={f.url} download={f.name}>{f.name}</a></li>
+            {/each}
+          </ul>
+        {:else if progress.objectUrl}
           <a class="download" href={progress.objectUrl} download={progress.name}>Download</a>
         {/if}
       </section>
