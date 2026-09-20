@@ -461,37 +461,38 @@
   }
 </script>
 
-<main class="shell">
-  <header class="brand">
-    <a class="wordmark" href="/" aria-label="Chute home">Chute</a>
-  </header>
+<main class="shell" class:is-landing={phase === 'lobby'}>
+  {#if phase !== 'lobby'}
+    <header class="brand">
+      <a class="wordmark" href="/" aria-label="Chute home">Chute</a>
+    </header>
+  {/if}
 
   {#if phase === 'lobby'}
-    <section class="intro" aria-labelledby="intro-title">
-      <h1 id="intro-title">Move files between your devices.</h1>
-      <p>Create a private room, then open it on the other device. No account required.</p>
-    </section>
-
-    <section class="panel lobby-actions" aria-label="Start or join a transfer">
-      <button class="primary" onclick={() => void startHost()}>Create a room</button>
-      <div class="divider"><span>or join a room</span></div>
-      <form
-        class="join"
-        onsubmit={(e) => {
-          e.preventDefault()
-          void joinWithCode()
-        }}
-      >
-        <input
-          bind:value={joinCode}
-          aria-label="Room code"
-          placeholder="Enter room code"
-          maxlength="12"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button type="submit">Join</button>
-      </form>
+    <section class="landing" aria-label="Chute">
+      <h1 class="brand-hero">Chute</h1>
+      <p class="tagline">Drop it in. It's already there.</p>
+      <p class="support">Open a room on one device, scan on the other, send files peer-to-peer.</p>
+      <div class="cta">
+        <button class="primary" onclick={() => void startHost()}>Create a room</button>
+        <form
+          class="join"
+          onsubmit={(e) => {
+            e.preventDefault()
+            void joinWithCode()
+          }}
+        >
+          <input
+            bind:value={joinCode}
+            aria-label="Room code"
+            placeholder="Enter room code"
+            maxlength="12"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="submit">Join</button>
+        </form>
+      </div>
       {#if pairs.length}
         <div class="saved">
           <h2>Recent devices</h2>
