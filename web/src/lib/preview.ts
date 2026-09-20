@@ -34,7 +34,7 @@ async function pdfThumb(file: File): Promise<string | null> {
       await doc.destroy()
       return null
     }
-    await page.render({ canvasContext: ctx, viewport: scaled, canvas }).promise
+    await page.render({ canvasContext: ctx, viewport: scaled }).promise
     const url = canvas.toDataURL('image/jpeg', 0.7)
     await doc.destroy()
     return url
