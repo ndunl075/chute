@@ -32,7 +32,8 @@ type Message struct {
 }
 
 type HubHandler struct {
-	Hub *room.Hub
+	Hub     *room.Hub
+	OnJoin  func(roomCreated bool)
 }
 
 func (h *HubHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -96,9 +97,13 @@ func (h *HubHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			r := h.Hub.GetOrCreate(msg.Room)
+			created := r.Count() == 0
 			if !r.Join(peer) {
 				sendErr(peer, "room full")
 				continue
+			}
+			if h.OnJoin != nil {
+				h.OnJoin(created)
 			}
 			currentRoom = r
 			joined, _ := json.Marshal(Message{
