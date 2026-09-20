@@ -15,6 +15,7 @@
   let status = $state('Idle')
   let peerCount = $state(0)
   let iceMs = $state<number | null>(null)
+  let icePath = $state('')
   let connState = $state('')
   let progress = $state<TransferProgress | null>(null)
   let error = $state('')
@@ -88,6 +89,7 @@
     status = 'Connecting to signaling…'
     error = ''
     iceMs = null
+    icePath = ''
     progress = null
     peerCount = 0
 
@@ -157,19 +159,23 @@
         if (transport) {
           session = new TransferSession(transport, {
             onProgress: (p) => {
-              progress = p
+              progress = { ...progress, ...p, thumbnailUrl: p.thumbnailUrl ?? progress?.thumbnailUrl }
             },
           })
         }
       },
-      onChannelMessage: (data) => {
-        session?.handleMessage(data)
+      onControlMessage: (data) => {
+        session?.handleControl(data)
+      },
+      onDataMessage: (data) => {
+        session?.handleData(data)
       },
       onConnectionState: (s) => {
         connState = s
       },
-      onIceConnectedAt: (ms) => {
+      onIceConnectedAt: (ms, path) => {
         iceMs = Math.round(ms)
+        icePath = path
       },
     })
   }
@@ -234,7 +240,7 @@
       {#if iceMs !== null}
         <div class="row highlight">
           <span class="label">ICE ready</span>
-          <span>{iceMs} ms</span>
+          <span>{iceMs} ms{icePath ? ` · ${icePath}` : ''}</span>
         </div>
       {/if}
       {#if connState}
@@ -279,6 +285,9 @@
 
     {#if progress}
       <section class="panel progress">
+        {#if progress.thumbnailUrl}
+          <img class="thumb" src={progress.thumbnailUrl} alt="" />
+        {/if}
         <div class="row">
           <span class="label">{progress.direction === 'send' ? 'Sending' : 'Receiving'}</span>
           <span>{progress.name}</span>
@@ -297,6 +306,9 @@
             <span class="highlight">TTFB {Math.round(progress.ttfbMs)} ms</span>
           {/if}
         </div>
+        {#if progress.streamedToDisk}
+          <p class="hint">Saved to disk via File System Access</p>
+        {/if}
         {#if progress.objectUrl}
           <a class="download" href={progress.objectUrl} download={progress.name}>Download</a>
         {/if}
