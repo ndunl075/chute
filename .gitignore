@@ -8,3 +8,5 @@ dist/
 server/chute
 server/chute.exe
 web/dist/
+web/test-results/
+web/playwright-report/

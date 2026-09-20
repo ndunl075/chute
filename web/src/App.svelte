@@ -12,6 +12,7 @@
   import { getOrCreateDeviceId, listPairs, savePair, type PairedDevice } from './lib/pair'
   import { readLocalClipboard, writeLocalClipboard } from './lib/clipboard'
   import { consumeSharedFiles } from './lib/share'
+  import { exposeMetrics, recordIce, recordTransfer } from './lib/metrics'
 
   type Phase = 'lobby' | 'waiting' | 'connected' | 'fallback' | 'error'
 
@@ -20,9 +21,6 @@
   let joinCode = $state('')
   let status = $state('Idle')
   let peerCount = $state(0)
-  let iceMs = $state<number | null>(null)
-  let icePath = $state('')
-  let connState = $state('')
   let progress = $state<TransferProgress | null>(null)
   let error = $state('')
   let dragging = $state(false)
@@ -48,6 +46,7 @@
   let connectTimer: ReturnType<typeof setTimeout> | null = null
 
   onMount(() => {
+    exposeMetrics()
     getOrCreateDeviceId()
     void listPairs().then((p) => {
       pairs = p
@@ -122,8 +121,6 @@
     phase = 'waiting'
     status = 'Connecting to signaling…'
     error = ''
-    iceMs = null
-    icePath = ''
     progress = null
     peerCount = 0
     transportMode = 'webrtc'
@@ -259,6 +256,17 @@
                   ...p,
                   thumbnailUrl: p.thumbnailUrl ?? progress?.thumbnailUrl,
                 }
+                if (p.ttfbMs !== null && (p.status === 'sending' || p.status === 'receiving' || p.status === 'done')) {
+                  // Record once when TTFB first appears, and again on done.
+                  if (p.status === 'done' || p.bytesDone > 0) {
+                    recordTransfer({
+                      transferId: p.transferId,
+                      direction: p.direction,
+                      size: p.size,
+                      ttfbMs: p.ttfbMs,
+                    })
+                  }
+                }
               },
             })
           }
@@ -286,14 +294,12 @@
           session?.handleData(data)
         },
         onConnectionState: (s) => {
-          connState = s
           if (s === 'failed' || s === 'disconnected') {
             status = 'WebRTC failed — use HTTPS fallback'
           }
         },
         onIceConnectedAt: (ms, path) => {
-          iceMs = Math.round(ms)
-          icePath = path
+          recordIce(Math.round(ms), path)
         },
       },
       iceServers,
@@ -363,14 +369,18 @@
 
 <main class="shell">
   <header class="brand">
-    <h1>Chute</h1>
-    <p class="tag">Drop it in. It's already there.</p>
+    <a class="wordmark" href="/" aria-label="Chute home">Chute</a>
   </header>
 
   {#if phase === 'lobby'}
-    <section class="panel">
-      <button class="primary" onclick={() => void startHost()}>Start a transfer</button>
-      <div class="or">or join with a code</div>
+    <section class="intro" aria-labelledby="intro-title">
+      <h1 id="intro-title">Move files between your devices.</h1>
+      <p>Create a private room, then open it on the other device. No account required.</p>
+    </section>
+
+    <section class="panel lobby-actions" aria-label="Start or join a transfer">
+      <button class="primary" onclick={() => void startHost()}>Create a room</button>
+      <div class="divider"><span>or join a room</span></div>
       <form
         class="join"
         onsubmit={(e) => {
@@ -380,7 +390,8 @@
       >
         <input
           bind:value={joinCode}
-          placeholder="Room code"
+          aria-label="Room code"
+          placeholder="Enter room code"
           maxlength="12"
           autocomplete="off"
           spellcheck="false"
@@ -388,58 +399,38 @@
         <button type="submit">Join</button>
       </form>
       {#if pairs.length}
-        <div class="or">paired devices</div>
-        <ul class="pairs">
-          {#each pairs as p}
-            <li>
-              <button class="secondary wide" onclick={() => void reconnectPair(p)}
-                >{p.label}</button
-              >
-            </li>
-          {/each}
-        </ul>
+        <div class="saved">
+          <h2>Recent devices</h2>
+          <ul class="pairs">
+            {#each pairs as p}
+              <li>
+                <button class="text-button" onclick={() => void reconnectPair(p)}>
+                  {p.label}<span aria-hidden="true">→</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
       {/if}
     </section>
   {:else}
-    <section class="panel meta">
-      <div class="row">
-        <span class="label">Room</span>
-        <code>{roomId}</code>
-      </div>
-      <div class="row">
-        <span class="label">Status</span>
-        <span>{status}</span>
-      </div>
-      <div class="row">
-        <span class="label">Peers</span>
-        <span>{peerCount}/2</span>
-      </div>
-      <div class="row">
-        <span class="label">Path</span>
-        <span>{transportMode}{icePath ? ` · ${icePath}` : ''}</span>
-      </div>
-      {#if iceMs !== null}
-        <div class="row highlight">
-          <span class="label">ICE ready</span>
-          <span>{iceMs} ms</span>
-        </div>
-      {/if}
-      {#if connState}
-        <div class="row">
-          <span class="label">RTC</span>
-          <span>{connState}</span>
-        </div>
-      {/if}
+    <section class="room-heading" aria-labelledby="room-title">
+      <p class="eyebrow">Room</p>
+      <h1 id="room-title">{roomId}</h1>
+      <p class="status">{status}</p>
     </section>
 
     {#if phase === 'waiting'}
       <section class="panel qr">
-        <canvas bind:this={qrCanvas}></canvas>
-        <p>Scan with the other device, or open:</p>
-        <code class="url">{shareUrl}</code>
-        {#if peerCount >= 2}
-          <button class="secondary" onclick={enableFallbackMode}>Use HTTPS fallback</button>
-        {/if}
+        <canvas bind:this={qrCanvas} aria-label="QR code for this room"></canvas>
+        <div class="qr-copy">
+          <h2>Open on your other device</h2>
+          <p>Scan the code or send this private link.</p>
+          <a class="url" href={shareUrl}>{shareUrl}</a>
+          {#if peerCount >= 2}
+            <button class="secondary" onclick={enableFallbackMode}>Use fallback connection</button>
+          {/if}
+        </div>
       </section>
     {/if}
 
@@ -455,13 +446,21 @@
         }}
         ondragleave={() => (dragging = false)}
         ondrop={onDrop}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') fileInput?.click()
+        }}
       >
-        <p>Drop files or a folder here</p>
-        <button class="secondary" onclick={() => fileInput?.click()}>browse files</button>
-        <button class="secondary" onclick={() => folderInput?.click()}>browse folder</button>
+        <h2>Drop files here</h2>
+        <p>They’ll be sent directly to the other device.</p>
+        <div class="action-row">
+          <button class="secondary" onclick={() => fileInput?.click()}>Choose files</button>
+          <button class="secondary" onclick={() => folderInput?.click()}>Choose folder</button>
+        </div>
         {#if phase === 'connected'}
-          <button class="secondary" onclick={() => void sendClipboard()}>Send clipboard</button>
-          <button class="secondary" onclick={enableFallbackMode}>HTTPS fallback</button>
+          <div class="quiet-actions">
+            <button class="text-button" onclick={() => void sendClipboard()}>Send clipboard</button>
+            <button class="text-button" onclick={enableFallbackMode}>Use fallback connection</button>
+          </div>
         {/if}
         {#if clipboardNote}
           <p class="hint">{clipboardNote}</p>
@@ -489,24 +488,29 @@
         {#if progress.thumbnailUrl}
           <img class="thumb" src={progress.thumbnailUrl} alt="" />
         {/if}
-        <div class="row">
-          <span class="label">{progress.direction === 'send' ? 'Sending' : 'Receiving'}</span>
-          <span>{progress.name}</span>
+        <div class="transfer-heading">
+          <span class="eyebrow">{progress.direction === 'send' ? 'Sending' : 'Receiving'}</span>
+          <strong>{progress.name}</strong>
         </div>
-        <div class="bar">
+        <div
+          class="bar"
+          role="progressbar"
+          aria-label={`Transfer progress for ${progress.name}`}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={progress.size ? Math.round((100 * progress.bytesDone) / progress.size) : 0}
+        >
           <div
             class="fill"
             style={`width: ${progress.size ? (100 * progress.bytesDone) / progress.size : 0}%`}
           ></div>
         </div>
-        <div class="row">
-          <span
-            >{formatBytes(progress.bytesDone)} / {formatBytes(progress.size)} · {progress.status}</span
-          >
+        <p class="transfer-meta">
+          {formatBytes(progress.bytesDone)} of {formatBytes(progress.size)} · {progress.status}
           {#if progress.ttfbMs !== null}
-            <span class="highlight">TTFB {Math.round(progress.ttfbMs)} ms</span>
+            · <span class="ttfb">TTFB {Math.round(progress.ttfbMs)} ms</span>
           {/if}
-        </div>
+        </p>
         {#if progress.streamedToDisk}
           <p class="hint">Saved to disk via File System Access</p>
         {/if}
