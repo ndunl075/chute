@@ -55,10 +55,11 @@ func (c *Collector) AllowFallback(ip string, addBytes int) bool {
 	return true
 }
 
-func (c *Collector) IncRooms() { c.RoomsCreated.Add(1) }
-func (c *Collector) IncPeers() { c.PeersJoined.Add(1) }
+func (c *Collector) IncRooms()     { c.RoomsCreated.Add(1) }
+func (c *Collector) IncPeers()     { c.PeersJoined.Add(1) }
 func (c *Collector) IncTransfers() { c.TransfersDone.Add(1) }
 
+func (c *Collector) Snapshot() map[string]any {
 	c.mu.Lock()
 	quota := c.dayQuota
 	ips := len(c.byDayIP)
