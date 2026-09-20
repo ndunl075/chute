@@ -6,9 +6,19 @@ Drop it in. It's already there.
 
 Open a page on your laptop. Scan the QR with your phone. Drag a file. It's on the other device.
 
-No app install, no account, no cable, no cloud round-trip for the file bytes.
+No app install, no account, no cable, no cloud round-trip for the file bytes (WebRTC). HTTPS fallback encrypts with a key that never leaves the URL fragment.
 
-> Status: **M4 — Make it reliable.** Chunk resume bitmaps (IndexedDB), wake lock, multi-file and folder transfers.
+> Status: **M5 — Make it spread.** PWA + Android Share Target, persistent pairing, clipboard sync, self-host docs.
+
+## Self-host first
+
+```bash
+cd deploy
+export CHUTE_TURN_URL=turn:YOUR.IP.HERE:3478
+docker compose up --build
+```
+
+Open `http://localhost:8080`. Details: [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md) · [docs/SECURITY.md](./docs/SECURITY.md)
 
 ## Quick start (dev)
 
@@ -24,7 +34,7 @@ cd server
 go run .
 ```
 
-Listens on `:8080` (`/ws`, `/health`).
+Listens on `:8080` (`/ws`, `/health`, `/api/config`, `/api/fallback/...`).
 
 ### Web client
 
@@ -34,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 — Vite proxies `/ws` to the Go server.
+Open http://localhost:5173 — Vite proxies `/ws` and `/api` to the Go server.
 
 ### One-binary serve (after build)
 
@@ -43,24 +53,15 @@ cd web && npm run build
 cd ../server && go run . -static ../web/dist
 ```
 
-Open http://localhost:8080
+## Features
 
-### Docker (signaling + TURN)
-
-```bash
-cd deploy
-export CHUTE_TURN_URL=turn:127.0.0.1:3478
-docker compose up --build
-```
-
-See [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).
-
-## How to try M1
-
-1. Open Chute on device A → **Start a transfer**.
-2. Scan the QR (or open the `/r/...` URL) on device B.
-3. Wait until status says the pipe is hot — note **ICE ready** ms.
-4. Drop a file. Note **TTFB** ms (target: under 200 ms once pre-warmed).
+1. **Sub-200ms TTFB** — ICE + DataChannels pre-warm as soon as both peers join
+2. **Cross-network** — STUN/TURN racing + encrypted HTTPS fallback
+3. **Resumable transfers** — chunk bitmaps in IndexedDB (24h)
+4. **Multi-file / folders** — striping across 6 DataChannels
+5. **PWA** — installable; Android Share Target posts into Chute
+6. **Clipboard sync** — control-channel text under a hard UX budget
+7. **Persistent pairing** — reconnect to a remembered room from the lobby
 
 ## Architecture
 
@@ -69,11 +70,13 @@ See [CHUTE_ARCHITECTURE.md](./CHUTE_ARCHITECTURE.md) and [protocol/PROTOCOL.md](
 ## Repo layout
 
 ```
-server/     Go signaling (rooms, SDP/ICE relay)
-web/        Svelte client
+server/     Go signaling + fallback store
+web/        Svelte client (PWA)
 protocol/   shared message notes
+deploy/     Docker Compose + coturn
+docs/       self-host + security
 ```
 
 ## License
 
-MIT (intended) — to be confirmed before public release.
+MIT

@@ -65,6 +65,12 @@ export type AbortMessage = {
   reason?: string
 }
 
+export type ClipboardControlMessage = {
+  type: 'clipboard'
+  text: string
+  sentAt: number
+}
+
 export type ControlMessage =
   | ManifestMessage
   | ResumeMessage
@@ -72,6 +78,7 @@ export type ControlMessage =
   | ThumbnailMessage
   | CompleteMessage
   | AbortMessage
+  | ClipboardControlMessage
 
 /** Binary data-channel frame: u32be chunkIndex + payload */
 export function encodeChunk(index: number, payload: ArrayBuffer): ArrayBuffer {
