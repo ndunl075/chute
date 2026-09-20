@@ -18,7 +18,7 @@ export CHUTE_TURN_URL=turn:YOUR.IP.HERE:3478
 docker compose up --build
 ```
 
-Open `http://localhost:8080`. Details: [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md) · [docs/SECURITY.md](./docs/SECURITY.md)
+Open `http://localhost:8080`. Details: [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md) · [docs/SECURITY.md](./docs/SECURITY.md) · [docs/TURN.md](./docs/TURN.md) · [docs/METRICS.md](./docs/METRICS.md)
 
 ## Quick start (dev)
 
