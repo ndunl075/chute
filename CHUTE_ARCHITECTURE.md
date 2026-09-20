@@ -2,7 +2,7 @@
 
 **Instant file transfer between any two devices, in the browser, open source.**
 
-Status: design, pre-implementation
+Status: M5 complete (PWA, pairing, clipboard, self-host) — ready for hardening
 Owner: Nico Dunlap / Frontier Digital
 Last updated: 2026-09-20
 

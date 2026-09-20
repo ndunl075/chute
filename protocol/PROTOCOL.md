@@ -31,6 +31,8 @@ Signal payload includes a `lane` (`all` | `relay`) so peers can race PeerConnect
 | manifest | transfer metadata before bytes |
 | complete | sender finished writing all chunks |
 | abort | cancel |
+| resume | receiver bitmap of already-held chunks |
+| clipboard | plaintext clipboard sync |
 
 ## Manifest
 

@@ -9,6 +9,9 @@
   import { generateRoomKey, importRoomKey } from './lib/crypto'
   import { loadConfig, type AppConfig } from './lib/config'
   import { fallbackReceive, fallbackSend } from './lib/fallback'
+  import { getOrCreateDeviceId, listPairs, savePair, type PairedDevice } from './lib/pair'
+  import { readLocalClipboard, writeLocalClipboard } from './lib/clipboard'
+  import { consumeSharedFiles } from './lib/share'
 
   type Phase = 'lobby' | 'waiting' | 'connected' | 'fallback' | 'error'
 
@@ -25,6 +28,10 @@
   let dragging = $state(false)
   let shareUrl = $state('')
   let transportMode = $state<'webrtc' | 'fallback'>('webrtc')
+  let pairs = $state<PairedDevice[]>([])
+  let clipboardNote = $state('')
+  let pendingShare: File[] = []
+  let keyFragment = $state('')
 
   let qrCanvas: HTMLCanvasElement | undefined = $state()
   let fileInput: HTMLInputElement | undefined = $state()
@@ -41,6 +48,10 @@
   let connectTimer: ReturnType<typeof setTimeout> | null = null
 
   onMount(() => {
+    getOrCreateDeviceId()
+    void listPairs().then((p) => {
+      pairs = p
+    })
     void loadConfig().then((c) => {
       appConfig = c
       iceServers = c.iceServers as RTCIceServer[]
@@ -49,6 +60,11 @@
     const m = path.match(/^\/r\/([a-z0-9]+)$/i)
     if (m) {
       void enterRoom(m[1].toLowerCase(), location.hash.slice(1) || null)
+    } else if (location.search.includes('share=1')) {
+      void consumeSharedFiles().then((files) => {
+        pendingShare = files
+        if (files.length) status = `${files.length} shared file(s) ready — start or join a room`
+      })
     }
   })
 
@@ -118,6 +134,7 @@
       history.replaceState({}, '', `/r/${id}#${keyMaterial}`)
     }
     roomKey = await importRoomKey(keyMaterial)
+    keyFragment = keyMaterial
     shareUrl = `${location.origin}/r/${id}#${keyMaterial}`
 
     if (!appConfig) {
@@ -233,6 +250,7 @@
           phase = 'connected'
           transportMode = 'webrtc'
           status = 'Connected — pipe is hot. Drop a file.'
+          void rememberPair()
           if (transport) {
             session = new TransferSession(transport, {
               onProgress: (p) => {
@@ -244,8 +262,24 @@
               },
             })
           }
+          if (pendingShare.length && session) {
+            const files = pendingShare
+            pendingShare = []
+            void session.sendFiles(files)
+          }
         },
         onControlMessage: (data) => {
+          try {
+            const msg = JSON.parse(data) as { type?: string; text?: string }
+            if (msg.type === 'clipboard' && typeof msg.text === 'string') {
+              void writeLocalClipboard(msg.text).then(() => {
+                clipboardNote = `Clipboard received (${msg.text!.length} chars)`
+              })
+              return
+            }
+          } catch {
+            /* fall through */
+          }
           session?.handleControl(data)
         },
         onDataMessage: (data) => {
@@ -291,6 +325,40 @@
     dragging = false
     void onFiles(e.dataTransfer?.files ?? null)
   }
+
+  async function rememberPair() {
+    if (!roomId || !keyFragment) return
+    const deviceId = remotePeerId || 'peer'
+    await savePair({
+      deviceId,
+      label: `Room ${roomId}`,
+      roomId,
+      keyFragment,
+      lastSeen: Date.now(),
+    })
+    pairs = await listPairs()
+  }
+
+  async function reconnectPair(p: PairedDevice) {
+    history.replaceState({}, '', `/r/${p.roomId}#${p.keyFragment}`)
+    await enterRoom(p.roomId, p.keyFragment)
+  }
+
+  async function sendClipboard() {
+    if (!transport?.channel || transport.channel.readyState !== 'open') {
+      error = 'Not connected'
+      return
+    }
+    try {
+      const text = await readLocalClipboard()
+      transport.sendControl(
+        JSON.stringify({ type: 'clipboard', text, sentAt: Date.now() }),
+      )
+      clipboardNote = `Clipboard sent (${text.length} chars)`
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'clipboard failed'
+    }
+  }
 </script>
 
 <main class="shell">
@@ -319,6 +387,18 @@
         />
         <button type="submit">Join</button>
       </form>
+      {#if pairs.length}
+        <div class="or">paired devices</div>
+        <ul class="pairs">
+          {#each pairs as p}
+            <li>
+              <button class="secondary wide" onclick={() => void reconnectPair(p)}
+                >{p.label}</button
+              >
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </section>
   {:else}
     <section class="panel meta">
@@ -380,7 +460,11 @@
         <button class="secondary" onclick={() => fileInput?.click()}>browse files</button>
         <button class="secondary" onclick={() => folderInput?.click()}>browse folder</button>
         {#if phase === 'connected'}
+          <button class="secondary" onclick={() => void sendClipboard()}>Send clipboard</button>
           <button class="secondary" onclick={enableFallbackMode}>HTTPS fallback</button>
+        {/if}
+        {#if clipboardNote}
+          <p class="hint">{clipboardNote}</p>
         {/if}
         <input
           bind:this={fileInput}
