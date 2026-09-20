@@ -17,9 +17,12 @@ test('pre-warmed LAN transfer hits TTFB under 200ms', async ({ browser }) => {
   guestPage.on('pageerror', (e) => console.error('guest pageerror', e))
 
   await hostPage.goto('/')
-  await expect(hostPage.getByRole('link', { name: 'Chute home' })).toBeVisible()
+  await expect(hostPage.getByRole('heading', { name: 'Chute', exact: true })).toBeVisible()
   await hostPage.getByRole('button', { name: 'Create a room' }).click()
   await expect(hostPage.locator('a.url')).toBeVisible({ timeout: 15_000 })
+
+  // Room view shows the compact wordmark link.
+  await expect(hostPage.getByRole('link', { name: 'Chute home' })).toBeVisible()
 
   const shareUrl = (await hostPage.locator('a.url').getAttribute('href')) || ''
   expect(shareUrl).toContain('/r/')
