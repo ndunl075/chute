@@ -8,7 +8,7 @@ Open a page on your laptop. Scan the QR with your phone. Drag a file. It's on th
 
 No app install, no account, no cable, no cloud round-trip for the file bytes.
 
-> Status: **M1 — Prove the premise.** Same-LAN QR pairing, single DataChannel, one file, in-memory receive. Measures ICE ready time and TTFB.
+> Status: **M2 — Make it fast.** Parallel DataChannels, ICE path racing, thumbnail-first, File System Access streaming on Chromium.
 
 ## Quick start (dev)
 
