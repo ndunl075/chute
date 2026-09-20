@@ -6,8 +6,11 @@
   import { PeerTransport } from './lib/transport'
   import { TransferSession, type TransferProgress } from './lib/transfer'
   import type { SignalEnvelope } from './lib/protocol'
+  import { generateRoomKey, importRoomKey } from './lib/crypto'
+  import { loadConfig, type AppConfig } from './lib/config'
+  import { fallbackReceive, fallbackSend } from './lib/fallback'
 
-  type Phase = 'lobby' | 'waiting' | 'connected' | 'error'
+  type Phase = 'lobby' | 'waiting' | 'connected' | 'fallback' | 'error'
 
   let phase = $state<Phase>('lobby')
   let roomId = $state('')
@@ -21,6 +24,7 @@
   let error = $state('')
   let dragging = $state(false)
   let shareUrl = $state('')
+  let transportMode = $state<'webrtc' | 'fallback'>('webrtc')
 
   let qrCanvas: HTMLCanvasElement | undefined = $state()
   let fileInput: HTMLInputElement | undefined = $state()
@@ -29,12 +33,21 @@
   let transport: PeerTransport | null = null
   let session: TransferSession | null = null
   let unsub: (() => void) | null = null
+  let roomKey: CryptoKey | null = null
+  let appConfig: AppConfig | null = null
+  let remotePeerId: string | null = null
+  let iceServers: RTCIceServer[] = []
+  let connectTimer: ReturnType<typeof setTimeout> | null = null
 
   onMount(() => {
+    void loadConfig().then((c) => {
+      appConfig = c
+      iceServers = c.iceServers as RTCIceServer[]
+    })
     const path = location.pathname
     const m = path.match(/^\/r\/([a-z0-9]+)$/i)
     if (m) {
-      void enterRoom(m[1].toLowerCase())
+      void enterRoom(m[1].toLowerCase(), location.hash.slice(1) || null)
     }
   })
 
@@ -43,7 +56,7 @@
   })
 
   $effect(() => {
-    if (phase === 'waiting' && shareUrl && qrCanvas) {
+    if ((phase === 'waiting' || phase === 'fallback') && shareUrl && qrCanvas) {
       void renderQr(qrCanvas, shareUrl)
     }
   })
@@ -56,6 +69,8 @@
   }
 
   function cleanup() {
+    if (connectTimer) clearTimeout(connectTimer)
+    connectTimer = null
     unsub?.()
     unsub = null
     session = null
@@ -67,8 +82,9 @@
 
   async function startHost() {
     const id = randomRoomId(8)
-    history.replaceState({}, '', `/r/${id}`)
-    await enterRoom(id)
+    const key = await generateRoomKey()
+    history.replaceState({}, '', `/r/${id}#${key}`)
+    await enterRoom(id, key)
   }
 
   async function joinWithCode() {
@@ -77,14 +93,15 @@
       error = 'Enter a room code'
       return
     }
-    history.replaceState({}, '', `/r/${id}`)
-    await enterRoom(id)
+    // Code join without fragment: generate a key (pair must share full URL for E2EE fallback)
+    const key = location.hash.slice(1) || (await generateRoomKey())
+    history.replaceState({}, '', `/r/${id}#${key}`)
+    await enterRoom(id, key)
   }
 
-  async function enterRoom(id: string) {
+  async function enterRoom(id: string, keyMaterial: string | null) {
     cleanup()
     roomId = id
-    shareUrl = `${location.origin}/r/${id}`
     phase = 'waiting'
     status = 'Connecting to signaling…'
     error = ''
@@ -92,6 +109,20 @@
     icePath = ''
     progress = null
     peerCount = 0
+    transportMode = 'webrtc'
+    remotePeerId = null
+
+    if (!keyMaterial) {
+      keyMaterial = await generateRoomKey()
+      history.replaceState({}, '', `/r/${id}#${keyMaterial}`)
+    }
+    roomKey = await importRoomKey(keyMaterial)
+    shareUrl = `${location.origin}/r/${id}#${keyMaterial}`
+
+    if (!appConfig) {
+      appConfig = await loadConfig()
+      iceServers = appConfig.iceServers as RTCIceServer[]
+    }
 
     signaling = new SignalingClient(defaultWsUrl())
     try {
@@ -119,15 +150,34 @@
 
     if (msg.type === 'peer-joined' && msg.peerId && signaling) {
       peerCount = msg.connected ?? 2
+      remotePeerId = msg.peerId
       status = 'Peer joined — negotiating…'
       startTransport(msg.peerId, true)
+      armFallbackTimer()
       return
     }
 
     if (msg.type === 'signal' && msg.peerId && signaling) {
+      const payload = msg.payload as { kind?: string; transferId?: string } | undefined
+      if (payload?.kind === 'fallback' && payload.transferId && roomKey) {
+        transportMode = 'fallback'
+        phase = 'fallback'
+        status = 'Receiving via HTTPS fallback…'
+        try {
+          await fallbackReceive(roomId, roomKey, payload.transferId, (p) => {
+            progress = p
+          })
+        } catch (e) {
+          error = e instanceof Error ? e.message : 'fallback receive failed'
+        }
+        return
+      }
+
       if (!transport) {
+        remotePeerId = msg.peerId
         status = 'Receiving offer — negotiating…'
         startTransport(msg.peerId, false)
+        armFallbackTimer()
       }
       await transport?.handleSignal(msg)
       return
@@ -140,6 +190,7 @@
       transport?.close()
       transport = null
       session = null
+      remotePeerId = null
       return
     }
 
@@ -149,41 +200,85 @@
     }
   }
 
-  function startTransport(remotePeerId: string, isOfferer: boolean) {
+  function armFallbackTimer() {
+    if (connectTimer) clearTimeout(connectTimer)
+    if (!appConfig?.fallback) return
+    connectTimer = setTimeout(() => {
+      if (phase !== 'connected' && phase !== 'fallback') {
+        status = 'WebRTC slow — HTTPS fallback available'
+      }
+    }, 8000)
+  }
+
+  function enableFallbackMode() {
+    transport?.close()
+    transport = null
+    session = null
+    transportMode = 'fallback'
+    phase = 'fallback'
+    status = 'HTTPS fallback ready — drop a file (encrypted at rest on server)'
+  }
+
+  function startTransport(peerId: string, isOfferer: boolean) {
     if (!signaling) return
     transport?.close()
-    transport = new PeerTransport(signaling, remotePeerId, isOfferer, {
-      onReady: () => {
-        phase = 'connected'
-        status = 'Connected — pipe is hot. Drop a file.'
-        if (transport) {
-          session = new TransferSession(transport, {
-            onProgress: (p) => {
-              progress = { ...progress, ...p, thumbnailUrl: p.thumbnailUrl ?? progress?.thumbnailUrl }
-            },
-          })
-        }
+    transport = new PeerTransport(
+      signaling,
+      peerId,
+      isOfferer,
+      {
+        onReady: () => {
+          if (connectTimer) clearTimeout(connectTimer)
+          phase = 'connected'
+          transportMode = 'webrtc'
+          status = 'Connected — pipe is hot. Drop a file.'
+          if (transport) {
+            session = new TransferSession(transport, {
+              onProgress: (p) => {
+                progress = {
+                  ...progress,
+                  ...p,
+                  thumbnailUrl: p.thumbnailUrl ?? progress?.thumbnailUrl,
+                }
+              },
+            })
+          }
+        },
+        onControlMessage: (data) => {
+          session?.handleControl(data)
+        },
+        onDataMessage: (data) => {
+          session?.handleData(data)
+        },
+        onConnectionState: (s) => {
+          connState = s
+          if (s === 'failed' || s === 'disconnected') {
+            status = 'WebRTC failed — use HTTPS fallback'
+          }
+        },
+        onIceConnectedAt: (ms, path) => {
+          iceMs = Math.round(ms)
+          icePath = path
+        },
       },
-      onControlMessage: (data) => {
-        session?.handleControl(data)
-      },
-      onDataMessage: (data) => {
-        session?.handleData(data)
-      },
-      onConnectionState: (s) => {
-        connState = s
-      },
-      onIceConnectedAt: (ms, path) => {
-        iceMs = Math.round(ms)
-        icePath = path
-      },
-    })
+      iceServers,
+    )
   }
 
   async function onFiles(files: FileList | File[] | null) {
-    if (!files || !files.length || !session) return
+    if (!files || !files.length) return
+    const file = files[0]
     try {
-      await session.sendFile(files[0])
+      if (transportMode === 'fallback' || phase === 'fallback') {
+        if (!roomKey || !signaling) throw new Error('not ready')
+        const transferId = await fallbackSend(roomId, roomKey, file, (p) => {
+          progress = p
+        })
+        signaling.signal({ kind: 'fallback', transferId }, remotePeerId ?? undefined)
+        return
+      }
+      if (!session) return
+      await session.sendFile(file)
     } catch (e) {
       error = e instanceof Error ? e.message : 'send failed'
     }
@@ -237,10 +332,14 @@
         <span class="label">Peers</span>
         <span>{peerCount}/2</span>
       </div>
+      <div class="row">
+        <span class="label">Path</span>
+        <span>{transportMode}{icePath ? ` · ${icePath}` : ''}</span>
+      </div>
       {#if iceMs !== null}
         <div class="row highlight">
           <span class="label">ICE ready</span>
-          <span>{iceMs} ms{icePath ? ` · ${icePath}` : ''}</span>
+          <span>{iceMs} ms</span>
         </div>
       {/if}
       {#if connState}
@@ -256,10 +355,13 @@
         <canvas bind:this={qrCanvas}></canvas>
         <p>Scan with the other device, or open:</p>
         <code class="url">{shareUrl}</code>
+        {#if peerCount >= 2}
+          <button class="secondary" onclick={enableFallbackMode}>Use HTTPS fallback</button>
+        {/if}
       </section>
     {/if}
 
-    {#if phase === 'connected'}
+    {#if phase === 'connected' || phase === 'fallback'}
       <section
         class="drop"
         class:dragging
@@ -274,6 +376,9 @@
       >
         <p>Drop a file here</p>
         <button class="secondary" onclick={() => fileInput?.click()}>or browse</button>
+        {#if phase === 'connected'}
+          <button class="secondary" onclick={enableFallbackMode}>HTTPS fallback</button>
+        {/if}
         <input
           bind:this={fileInput}
           type="file"

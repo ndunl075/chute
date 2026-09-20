@@ -51,9 +51,14 @@ export class PeerTransport {
     private remotePeerId: string,
     isOfferer: boolean,
     private events: TransportEvents,
+    iceServers: RTCIceServer[] = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ],
   ) {
     this.polite = !isOfferer
     this.startedAt = performance.now()
+    this.iceServers = iceServers
 
     // Race: all-candidates vs relay-only. First connected wins.
     this.lanes = [
@@ -69,12 +74,11 @@ export class PeerTransport {
     }
   }
 
+  private iceServers: RTCIceServer[]
+
   private createLane(name: string, config: RTCConfiguration): RaceLane {
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-      ],
+      iceServers: this.iceServers,
       ...config,
     })
 
