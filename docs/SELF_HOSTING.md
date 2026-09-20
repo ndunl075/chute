@@ -18,9 +18,9 @@ Open `http://localhost:8080`.
 | `CHUTE_TURN_URL` | TURN URI(s), comma-separated | unset |
 | `CHUTE_TURN_USERNAME` | TURN user | `chute` |
 | `CHUTE_TURN_CREDENTIAL` | TURN password | `chute` |
-| `CHUTE_STUN_URLS` | STUN URI(s) | Google public STUN |
+| `CHUTE_FALLBACK_DAILY_BYTES` | Per-IP daily HTTPS fallback quota | `1073741824` (1 GiB) |
 
-For public internet, set `external-ip` in `deploy/coturn.conf` to your server's public IP and open UDP 3478 + 49152–49200.
+Operational JSON metrics: `GET /api/metrics`.
 
 ## What the server sees
 

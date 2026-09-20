@@ -11,6 +11,7 @@ import (
 
 	"github.com/ndunl075/chute/server/config"
 	"github.com/ndunl075/chute/server/fallback"
+	"github.com/ndunl075/chute/server/metrics"
 	"github.com/ndunl075/chute/server/room"
 	"github.com/ndunl075/chute/server/signal"
 )
@@ -22,11 +23,23 @@ func main() {
 
 	hub := room.NewHub()
 	cfg := config.FromEnv()
+	m := metrics.New()
 	store := fallback.NewStore()
+	store.Allow = m.AllowFallback
+	store.OnComplete = m.IncTransfers
 
 	mux := http.NewServeMux()
-	mux.Handle("/ws", &signal.HubHandler{Hub: hub})
+	mux.Handle("/ws", &signal.HubHandler{
+		Hub: hub,
+		OnJoin: func(roomCreated bool) {
+			m.IncPeers()
+			if roomCreated {
+				m.IncRooms()
+			}
+		},
+	})
 	mux.HandleFunc("GET /api/config", cfg.Handler())
+	mux.HandleFunc("GET /api/metrics", m.Handler())
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -61,6 +74,7 @@ func withStatic(api http.Handler, root string) http.Handler {
 		if r.URL.Path == "/ws" ||
 			r.URL.Path == "/health" ||
 			r.URL.Path == "/api/config" ||
+			r.URL.Path == "/api/metrics" ||
 			strings.HasPrefix(r.URL.Path, "/api/fallback/") {
 			api.ServeHTTP(w, r)
 			return

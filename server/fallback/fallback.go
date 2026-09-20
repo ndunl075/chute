@@ -2,8 +2,10 @@ package fallback
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,8 +32,10 @@ type transfer struct {
 
 // Store is an in-memory encrypted chunk buffer. Server never sees plaintext.
 type Store struct {
-	mu    sync.Mutex
-	items map[string]*chunkStore
+	mu      sync.Mutex
+	items   map[string]*chunkStore
+	Allow   func(ip string, n int) bool
+	OnComplete func()
 }
 
 func NewStore() *Store {
@@ -92,6 +96,10 @@ func (s *Store) putMeta(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
+	if s.Allow != nil && !s.Allow(clientIP(r), len(body)) {
+		http.Error(w, "fallback quota exceeded", http.StatusTooManyRequests)
+		return
+	}
 	tr := s.getTransfer(r.PathValue("room"), r.PathValue("transfer"), true)
 	tr.mu.Lock()
 	tr.meta = body
@@ -126,6 +134,10 @@ func (s *Store) putChunk(w http.ResponseWriter, r *http.Request) {
 	body, err := readLimited(r.Body, maxChunkBytes)
 	if err != nil {
 		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	if s.Allow != nil && !s.Allow(clientIP(r), len(body)) {
+		http.Error(w, "fallback quota exceeded", http.StatusTooManyRequests)
 		return
 	}
 	tr := s.getTransfer(r.PathValue("room"), r.PathValue("transfer"), true)
@@ -169,6 +181,9 @@ func (s *Store) complete(w http.ResponseWriter, r *http.Request) {
 	tr.done = true
 	tr.updated = time.Now()
 	tr.mu.Unlock()
+	if s.OnComplete != nil {
+		s.OnComplete()
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -211,4 +226,15 @@ func readLimited(r io.Reader, n int64) ([]byte, error) {
 		return nil, io.ErrUnexpectedEOF
 	}
 	return data, nil
+}
+
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		return strings.TrimSpace(strings.Split(xff, ",")[0])
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
