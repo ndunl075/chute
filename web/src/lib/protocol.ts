@@ -21,6 +21,8 @@ export type FileEntry = {
   mime: string
   /** Relative path for folder transfers */
   path?: string
+  /** Content address: `blake3:<hex>` */
+  hash?: string
 }
 
 export type ManifestMessage = {

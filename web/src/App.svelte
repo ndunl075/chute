@@ -511,6 +511,9 @@
             · <span class="ttfb">TTFB {Math.round(progress.ttfbMs)} ms</span>
           {/if}
         </p>
+        {#if progress.hashVerified}
+          <p class="hint">BLAKE3 verified</p>
+        {/if}
         {#if progress.streamedToDisk}
           <p class="hint">Saved to disk via File System Access</p>
         {/if}

@@ -41,7 +41,7 @@ Signal payload includes a `lane` (`all` | `relay`) so peers can race PeerConnect
   "type": "manifest",
   "transferId": "uuid",
   "files": [
-    { "id": 0, "name": "file.bin", "size": 1234, "mime": "application/octet-stream" }
+    { "id": 0, "name": "file.bin", "size": 1234, "mime": "application/octet-stream", "hash": "blake3:…" }
   ],
   "chunkSize": 65536,
   "channelCount": 6,

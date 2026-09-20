@@ -13,6 +13,7 @@ import { makeThumbnail } from './preview'
 import type { PeerTransport } from './transport'
 import { deleteBitmap, fromBitset, loadBitmap, saveBitmap, toBitset } from './idb'
 import { releaseWakeLock, requestWakeLock } from './wakelock'
+import { blake3Bytes, blake3File } from './blake3'
 
 export type TransferProgress = {
   transferId: string
@@ -28,6 +29,7 @@ export type TransferProgress = {
   thumbnailUrl?: string
   streamedToDisk?: boolean
   fileCount?: number
+  hashVerified?: boolean
 }
 
 export type TransferCallbacks = {
@@ -209,6 +211,25 @@ export class TransferSession {
     for (const file of r.files) {
       const slice = all.slice(offset, offset + file.size)
       offset += file.size
+      if (file.hash) {
+        const got = await blake3Bytes(slice)
+        if (got !== file.hash) {
+          await releaseWakeLock()
+          this.callbacks.onProgress({
+            transferId: r.transferId,
+            direction: 'receive',
+            name: file.path || file.name,
+            size: r.totalSize,
+            bytesDone: r.bytesDone,
+            ttfbMs: r.firstByteAt,
+            status: 'error',
+            error: `hash mismatch for ${file.name}`,
+            hashVerified: false,
+          })
+          this.receiving = null
+          return
+        }
+      }
       const sink = await openReceiveSink(file.path || file.name, file.mime, file.size)
       await sink.write(slice)
       const closed = await sink.close()
@@ -234,6 +255,7 @@ export class TransferSession {
       thumbnailUrl: r.thumbnailUrl,
       streamedToDisk: streamed,
       fileCount: r.files.length,
+      hashVerified: r.files.every((f) => Boolean(f.hash)),
     })
     this.receiving = null
   }
@@ -278,13 +300,19 @@ export class TransferSession {
     const dataChannels = this.transport.dataChannels
     if (!dataChannels.length) throw new Error('data channels not open')
 
-    const entries: FileEntry[] = files.map((f, id) => ({
-      id,
-      name: f.name,
-      size: f.size,
-      mime: f.type || 'application/octet-stream',
-      path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
-    }))
+    const entries: FileEntry[] = []
+    for (let id = 0; id < files.length; id++) {
+      const f = files[id]
+      const hash = await blake3File(f)
+      entries.push({
+        id,
+        name: f.name,
+        size: f.size,
+        mime: f.type || 'application/octet-stream',
+        path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+        hash,
+      })
+    }
     const totalSize = entries.reduce((s, f) => s + f.size, 0)
     const label = files.length === 1 ? files[0].name : `${files.length} files`
 
