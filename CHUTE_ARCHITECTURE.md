@@ -2,7 +2,7 @@
 
 **Instant file transfer between any two devices, in the browser, open source.**
 
-Status: M5 complete (PWA, pairing, clipboard, self-host) — ready for hardening
+Status: post-M5 hardening complete (TTFB soak, BLAKE3, StreamSaver, PDF preview, Ed25519 pairing, metering, TURN, CI, landing)
 Owner: Nico Dunlap / Frontier Digital
 Last updated: 2026-09-20
 

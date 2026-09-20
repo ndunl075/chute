@@ -1,81 +1,53 @@
 # Chute
 
-**Instant file transfer between any two devices, in the browser.**
+**Drop it in. It's already there.**
 
-Drop it in. It's already there.
+Instant file transfer between any two devices, in the browser. Open a page, scan a QR, drag a file — peer-to-peer over WebRTC, with an encrypted HTTPS fallback when UDP is blocked.
 
-Open a page on your laptop. Scan the QR with your phone. Drag a file. It's on the other device.
-
-No app install, no account, no cable, no cloud round-trip for the file bytes (WebRTC). HTTPS fallback encrypts with a key that never leaves the URL fragment.
-
-> Status: **M5 — Make it spread.** PWA + Android Share Target, persistent pairing, clipboard sync, self-host docs.
+No app install. No account. No cable. No cloud round-trip for file bytes on the happy path.
 
 ## Self-host first
 
 ```bash
 cd deploy
 export CHUTE_TURN_URL=turn:YOUR.IP.HERE:3478
+export CHUTE_TURN_CREDENTIAL=your-strong-password
 docker compose up --build
 ```
 
-Open `http://localhost:8080`. Details: [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md) · [docs/SECURITY.md](./docs/SECURITY.md) · [docs/TURN.md](./docs/TURN.md) · [docs/METRICS.md](./docs/METRICS.md)
+Open `http://localhost:8080`.
 
-## Quick start (dev)
+Docs: [SELF_HOSTING](./docs/SELF_HOSTING.md) · [TURN](./docs/TURN.md) · [SECURITY](./docs/SECURITY.md) · [METRICS](./docs/METRICS.md)
 
-### Prerequisites
-
-- Go 1.22+
-- Node 20+
-
-### Signaling server
+## Dev
 
 ```bash
-cd server
-go run .
+# terminal 1
+cd server && go run .
+
+# terminal 2
+cd web && npm install && npm run dev
 ```
 
-Listens on `:8080` (`/ws`, `/health`, `/api/config`, `/api/fallback/...`).
-
-### Web client
+Prove the premise (TTFB &lt; 200 ms on a hot pipe):
 
 ```bash
-cd web
-npm install
-npm run dev
+cd web && npm run test:soak
 ```
 
-Open http://localhost:5173 — Vite proxies `/ws` and `/api` to the Go server.
+## What you get
 
-### One-binary serve (after build)
-
-```bash
-cd web && npm run build
-cd ../server && go run . -static ../web/dist
-```
-
-## Features
-
-1. **Sub-200ms TTFB** — ICE + DataChannels pre-warm as soon as both peers join
-2. **Cross-network** — STUN/TURN racing + encrypted HTTPS fallback
-3. **Resumable transfers** — chunk bitmaps in IndexedDB (24h)
-4. **Multi-file / folders** — striping across 6 DataChannels
-5. **PWA** — installable; Android Share Target posts into Chute
-6. **Clipboard sync** — control-channel text under a hard UX budget
-7. **Persistent pairing** — reconnect to a remembered room from the lobby
+| Capability | Detail |
+|---|---|
+| Sub-200 ms TTFB | Pre-warmed DataChannels; CI soak enforces it |
+| Fast path | 6 parallel channels, ICE racing, thumbnails (image/video/PDF) |
+| Anywhere | STUN/TURN + AES-GCM HTTPS fallback (key in URL `#fragment`) |
+| Reliable | Resume bitmaps, wake lock, multi-file/folders, BLAKE3 verify |
+| Spread | PWA + Android Share Target, Ed25519 pairing + revoke, clipboard |
 
 ## Architecture
 
-See [CHUTE_ARCHITECTURE.md](./CHUTE_ARCHITECTURE.md) and [protocol/PROTOCOL.md](./protocol/PROTOCOL.md).
-
-## Repo layout
-
-```
-server/     Go signaling + fallback store
-web/        Svelte client (PWA)
-protocol/   shared message notes
-deploy/     Docker Compose + coturn
-docs/       self-host + security
-```
+[CHUTE_ARCHITECTURE.md](./CHUTE_ARCHITECTURE.md) · [protocol/PROTOCOL.md](./protocol/PROTOCOL.md)
 
 ## License
 
